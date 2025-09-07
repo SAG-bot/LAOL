@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[dev]
+  framework = "vite"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Scheduled function to clean up expired messages hourly
+[[scheduled.functions]]
+  name = "cleanup-expired-messages"
+  cron = "0 * * * *"

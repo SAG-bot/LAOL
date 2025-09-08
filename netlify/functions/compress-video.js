@@ -5,13 +5,12 @@ const path = require("path");
 
 exports.handler = async (event) => {
   try {
-    // Expecting video as base64 from client
     const { fileName, fileData } = JSON.parse(event.body);
 
     const inputPath = path.join("/tmp", fileName);
     const outputPath = path.join("/tmp", "compressed_" + fileName);
 
-    // Write incoming file to tmp folder
+    // Write input video to tmp
     fs.writeFileSync(inputPath, Buffer.from(fileData, "base64"));
 
     // Run ffmpeg compression
@@ -19,13 +18,13 @@ exports.handler = async (event) => {
       const proc = spawn(ffmpeg.path, [
         "-i", inputPath,
         "-vcodec", "libx264",
-        "-crf", "28", // higher = more compression
+        "-crf", "28",
         "-preset", "fast",
-        outputPath
+        outputPath,
       ]);
 
       proc.on("close", (code) => {
-        code === 0 ? resolve() : reject(new Error("FFmpeg failed"));
+        code === 0 ? resolve() : reject(new Error("FFmpeg compression failed"));
       });
     });
 

@@ -7,7 +7,9 @@ const affirmations = [
   'I am patient with progress; I glow in small wins.',
   'Love guides my craft; beauty shapes my path.',
   'I let go of perfection; I embrace presence.',
-  'Every commit is a love letter to tomorrow.'
+  'Every commit is a love letter to tomorrow.',
+  'kinda hard to write affirmations for your ex',
+  "Don't justify bs, walk away'
 ];
 
 function getDailyAffirmation() {
@@ -25,3 +27,4 @@ export default function AffirmationTile() {
   );
 
 }
+

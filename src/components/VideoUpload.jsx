@@ -6,8 +6,15 @@ export default function VideoUpload() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  const MAX_SIZE_MB = 200; // reject anything above 200MB
+
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selected = e.target.files[0];
+    if (selected && selected.size > MAX_SIZE_MB * 1024 * 1024) {
+      alert(`File too large! Max allowed is ${MAX_SIZE_MB}MB.`);
+      return;
+    }
+    setFile(selected);
   };
 
   const compressVideo = async (file) => {
@@ -80,7 +87,7 @@ export default function VideoUpload() {
     <div>
       <h2>Upload Video</h2>
       <input type="file" accept="video/*" onChange={handleFileChange} />
-      <button onClick={handleUpload} disabled={uploading}>
+      <button onClick={handleUpload} disabled={uploading || !file}>
         {uploading ? `Uploading... ${progress}%` : "Upload"}
       </button>
     </div>

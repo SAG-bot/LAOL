@@ -14,7 +14,7 @@ export default function VideoList({ session }) {
   const [likes, setLikes] = useState(new Map());
   const [userLikes, setUserLikes] = useState(new Set());
   const [comments, setComments] = useState(new Map());
-  const [modalVideo, setModalVideo] = useState(null); // New: modal state
+  const [modalVideo, setModalVideo] = useState(null);
   const userId = session.user.id;
 
   const loadVideos = async () => {
@@ -38,12 +38,10 @@ export default function VideoList({ session }) {
     const { data: likeRows } = await supabase.from('likes').select('video_id, user_id');
     const likeCountsMap = new Map();
     const userLikedSet = new Set();
-
     likeRows?.forEach((l) => {
       likeCountsMap.set(l.video_id, (likeCountsMap.get(l.video_id) || 0) + 1);
       if (l.user_id === userId) userLikedSet.add(l.video_id);
     });
-
     setLikes(likeCountsMap);
     setUserLikes(userLikedSet);
 
@@ -116,12 +114,10 @@ export default function VideoList({ session }) {
           const userLiked = userLikes.has(v.id);
           return (
             <div className="video-card card" key={v.id}>
-              {/* Click thumbnail to open modal */}
               {v.thumbnailUrl ? (
                 <img
                   src={v.thumbnailUrl}
                   alt={v.title}
-                  style={{ width: '100%', borderRadius: 4, cursor: 'pointer' }}
                   onClick={() => setModalVideo(v)}
                 />
               ) : (
@@ -129,7 +125,6 @@ export default function VideoList({ session }) {
                   src={v.videoUrl}
                   controls
                   preload="metadata"
-                  style={{ cursor: 'pointer' }}
                   onClick={() => setModalVideo(v)}
                 />
               )}
@@ -161,33 +156,14 @@ export default function VideoList({ session }) {
       </div>
 
       {/* Modal */}
-      {modalVideo && (
-        <div
-          style={{
-            position: 'fixed', top:0, left:0, width:'100vw', height:'100vh',
-            background:'rgba(0,0,0,0.8)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:1000
-          }}
-          onClick={() => setModalVideo(null)}
-        >
-          <div style={{ position:'relative', width:'90%', maxWidth:'720px' }}>
-            <video
-              src={modalVideo.videoUrl}
-              controls
-              autoPlay
-              style={{ width:'100%', borderRadius:8 }}
-              onClick={(e)=>e.stopPropagation()}
-            />
-            <button
-              style={{
-                position:'absolute', top:8, right:8, background:'#fff', border:'none', borderRadius:4, padding:'4px 8px', cursor:'pointer'
-              }}
-              onClick={() => setModalVideo(null)}
-            >
-              Close
-            </button>
+      <div className={`modal-overlay ${modalVideo ? 'active' : ''}`} onClick={() => setModalVideo(null)}>
+        {modalVideo && (
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <video src={modalVideo.videoUrl} controls autoPlay />
+            <button className="modal-close" onClick={() => setModalVideo(null)}>Close</button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

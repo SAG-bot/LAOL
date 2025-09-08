@@ -7,7 +7,6 @@ const ffmpeg = createFFmpeg({ log: true });
 export default function VideoUpload({ session }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("");
 
   const handleFileChange = (e) => setFile(e.target.files[0]);
@@ -22,11 +21,9 @@ export default function VideoUpload({ session }) {
 
     setStatus("Compressing video…");
 
-    // Write file to FFmpeg FS
     ffmpeg.FS("writeFile", file.name, await fetchFile(file));
-
-    // Run FFmpeg to compress
     const outputName = "compressed.mp4";
+
     await ffmpeg.run(
       "-i",
       file.name,
@@ -39,49 +36,43 @@ export default function VideoUpload({ session }) {
       outputName
     );
 
-    // Read compressed file
     const data = ffmpeg.FS("readFile", outputName);
     const compressedFile = new Blob([data.buffer], { type: "video/mp4" });
 
     setStatus("Uploading video…");
 
-    const fileExt = "mp4";
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = fileName;
+    const filePath = `${Date.now()}.mp4`;
 
     const { error: storageError } = await supabase.storage
       .from("videos")
       .upload(filePath, compressedFile, { cacheControl: "3600", upsert: false });
 
     if (storageError) {
-      console.error(storageError);
       alert("Upload failed!");
+      console.error(storageError);
       setUploading(false);
       setStatus("");
       return;
     }
 
-    // Save metadata
-    const { error: dbError } = await supabase.from("videos").insert({
+    await supabase.from("videos").insert({
       title: file.name,
       video_path: filePath,
       user_id: session.user.id
     });
 
-    if (dbError) console.error(dbError);
     setUploading(false);
     setStatus("Upload complete!");
     setFile(null);
   };
 
   return (
-    <div>
+    <div className="card">
       <h3>Upload a new video</h3>
       <input type="file" accept="video/*" onChange={handleFileChange} className="file" />
       <button className="button" onClick={uploadVideo} disabled={uploading}>
         {uploading ? status || "Uploading…" : "Upload"}
       </button>
-      {progress > 0 && <div>Progress: {progress}%</div>}
     </div>
   );
 }

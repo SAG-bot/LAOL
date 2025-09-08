@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import Auth from "./components/Auth";
 import AffirmationTile from "./components/AffirmationTile";
@@ -10,20 +10,17 @@ import FloatingButtons from "./components/FloatingButtons";
 export default function App() {
   const [session, setSession] = useState(null);
   const [showChat, setShowChat] = useState(false);
+  const videoListRef = useRef(null);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session || null);
-    });
-
-    // Listen for auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-    });
-
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: authListener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => authListener.subscription.unsubscribe();
   }, []);
+
+  const handleVideoUpload = () => {
+    if (videoListRef.current) videoListRef.current.reload();
+  };
 
   return (
     <div className="container">
@@ -32,9 +29,7 @@ export default function App() {
           <div className="logo"></div>
           <h1>Starry Vlog</h1>
         </div>
-        {session && (
-          <span className="badge">Signed in as {session.user.email}</span>
-        )}
+        {session && <span className="badge">Signed in as {session.user.email}</span>}
       </header>
 
       <div style={{ marginTop: 16 }} className="card">
@@ -47,41 +42,26 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* Video Upload */}
           <div style={{ marginTop: 16 }} className="card">
-            <VideoUpload session={session} />
+            <VideoUpload session={session} onUploadComplete={handleVideoUpload} />
           </div>
 
-          {/* Video List */}
           <div style={{ marginTop: 16 }} className="card">
-            <VideoList session={session} />
+            <VideoList ref={videoListRef} session={session} />
           </div>
         </>
       )}
 
-      <footer>
-        Made with a sky full of stars — blue, pink, and purple.
-      </footer>
+      <footer>Made with a sky full of stars — blue, pink, and purple.</footer>
 
       {session && (
         <>
           <FloatingButtons
-            onChat={() => setShowChat((v) => !v)}
-            onLogout={async () => {
-              await supabase.auth.signOut();
-            }}
+            onChat={() => setShowChat(v => !v)}
+            onLogout={async () => await supabase.auth.signOut()}
           />
           {showChat && (
-            <div
-              style={{
-                position: "fixed",
-                right: 84,
-                bottom: 16,
-                width: 360,
-                maxWidth: "90vw",
-                zIndex: 30,
-              }}
-            >
+            <div style={{ position: "fixed", right: 84, bottom: 16, width: 360, maxWidth: "90vw", zIndex: 30 }}>
               <div className="card">
                 <Chat session={session} />
               </div>

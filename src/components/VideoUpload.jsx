@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { supabase } from "../supabaseClient";
-import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
+import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg/dist/esm/index.js";
 
 const ffmpeg = createFFmpeg({ log: true });
 
@@ -76,3 +76,4 @@ export default function VideoUpload({ session }) {
     </div>
   );
 }
+

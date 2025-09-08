@@ -1,48 +1,54 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient';
+import React, { useEffect, useState } from "react";
+import { supabase } from "../supabaseClient";
 
-// Generate a signed URL for private/public videos
-async function getSignedUrl(path) {
-  const { data, error } = await supabase
-    .storage.from('videos')
-    .createSignedUrl(path, 60 * 60); // 1 hour
+async function signedUrl(path) {
+  const { data, error } = await supabase.storage
+    .from("videos")
+    .createSignedUrl(path, 60 * 60);
   if (error) throw error;
   return data.signedUrl;
 }
 
 export default function VideoList({ session }) {
   const [videos, setVideos] = useState([]);
-  const [likes, setLikes] = useState(new Map()); // videoId -> count
+  const [likes, setLikes] = useState(new Map());
   const [userLikes, setUserLikes] = useState(new Set());
   const [comments, setComments] = useState(new Map());
   const userId = session.user.id;
 
   const loadVideos = async () => {
     const { data: vids, error } = await supabase
-      .from('videos')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) return console.error(error);
+      .from("videos")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-    // Add signed URLs
-    const vidsWithUrls = await Promise.all(
-      vids.map(async (v) => ({ ...v, url: await getSignedUrl(v.video_path) }))
+    if (error) throw error;
+
+    const withUrls = await Promise.all(
+      vids.map(async (v) => ({
+        ...v,
+        url: await signedUrl(v.video_path),
+      }))
     );
-    setVideos(vidsWithUrls);
+    setVideos(withUrls);
 
-    // Load likes
-    const { data: likeRows } = await supabase.from('likes').select('video_id, user_id');
-    const likeCounts = new Map();
-    likeRows?.forEach(l => likeCounts.set(l.video_id, (likeCounts.get(l.video_id) || 0) + 1));
-    setLikes(likeCounts);
+    const { data: likeRows } = await supabase.from("likes").select("video_id, user_id");
+    const { data: likeCounts } = await supabase
+      .from("likes")
+      .select("video_id, count(*)")
+      .group("video_id");
 
-    const likedSet = new Set(likeRows?.filter(l => l.user_id === userId).map(l => l.video_id));
-    setUserLikes(likedSet);
+    setUserLikes(new Set(likeRows?.filter((r) => r.user_id === userId).map((r) => r.video_id) || []));
+    const map = new Map();
+    likeCounts?.forEach((lc) => map.set(lc.video_id, lc.count));
+    setLikes(map);
 
-    // Load comments
-    const { data: cmts } = await supabase.from('comments').select('*').order('created_at', { ascending: true });
+    const { data: cmts } = await supabase
+      .from("comments")
+      .select("*")
+      .order("created_at", { ascending: true });
     const cMap = new Map();
-    cmts?.forEach(c => {
+    cmts?.forEach((c) => {
       const arr = cMap.get(c.video_id) || [];
       arr.push(c);
       cMap.set(c.video_id, arr);
@@ -50,23 +56,54 @@ export default function VideoList({ session }) {
     setComments(cMap);
   };
 
-  useEffect(() => { loadVideos(); }, []);
+  useEffect(() => {
+    loadVideos();
+
+    // Optional: real-time updates
+    const subscription = supabase
+      .channel("videos")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "videos" },
+        loadVideos
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(subscription);
+  }, []);
 
   const toggleLike = async (videoId) => {
     if (userLikes.has(videoId)) {
-      await supabase.from('likes').delete().eq('video_id', videoId).eq('user_id', userId);
-      const updatedSet = new Set(userLikes); updatedSet.delete(videoId); setUserLikes(updatedSet);
-      setLikes(new Map(likes.set(videoId, Math.max((likes.get(videoId) || 1) - 1, 0))));
+      const { error } = await supabase
+        .from("likes")
+        .delete()
+        .eq("video_id", videoId)
+        .eq("user_id", userId);
+      if (!error) {
+        const set = new Set(userLikes);
+        set.delete(videoId);
+        setUserLikes(set);
+        setLikes(new Map(likes.set(videoId, Math.max((likes.get(videoId) || 1) - 1, 0))));
+      }
     } else {
-      await supabase.from('likes').insert({ video_id: videoId, user_id: userId });
-      const updatedSet = new Set(userLikes); updatedSet.add(videoId); setUserLikes(updatedSet);
-      setLikes(new Map(likes.set(videoId, (likes.get(videoId) || 0) + 1)));
+      const { error } = await supabase
+        .from("likes")
+        .insert({ video_id: videoId, user_id: userId });
+      if (!error) {
+        const set = new Set(userLikes);
+        set.add(videoId);
+        setUserLikes(set);
+        setLikes(new Map(likes.set(videoId, (likes.get(videoId) || 0) + 1)));
+      }
     }
   };
 
   const addComment = async (videoId, content) => {
-    if (!content.trim()) return;
-    const { data, error } = await supabase.from('comments').insert({ video_id: videoId, user_id: userId, content }).select().single();
+    const { data, error } = await supabase
+      .from("comments")
+      .insert({ video_id: videoId, user_id: userId, content })
+      .select()
+      .single();
     if (!error && data) {
       const cMap = new Map(comments);
       const arr = cMap.get(videoId) || [];
@@ -77,38 +114,57 @@ export default function VideoList({ session }) {
   };
 
   const deleteComment = async (videoId, id) => {
-    await supabase.from('comments').delete().eq('id', id);
-    const cMap = new Map(comments);
-    cMap.set(videoId, (cMap.get(videoId) || []).filter(c => c.id !== id));
-    setComments(cMap);
+    const { error } = await supabase.from("comments").delete().eq("id", id);
+    if (!error) {
+      const cMap = new Map(comments);
+      cMap.set(videoId, (cMap.get(videoId) || []).filter((c) => c.id !== id));
+      setComments(cMap);
+    }
   };
 
   const deleteVideo = async (vid) => {
-    await supabase.from('videos').delete().eq('id', vid.id);
-    await supabase.storage.from('videos').remove([vid.video_path]).catch(() => {});
-    setVideos(videos.filter(v => v.id !== vid.id));
+    const { error } = await supabase.from("videos").delete().eq("id", vid.id);
+    if (!error) {
+      await supabase.storage.from("videos").remove([vid.video_path]).catch(() => {});
+      setVideos(videos.filter((v) => v.id !== vid.id));
+    }
   };
 
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Recent shares</h2>
       <div className="video-grid">
-        {videos.map(v => {
+        {videos.map((v) => {
           const likeCount = likes.get(v.id) || 0;
           const userLiked = userLikes.has(v.id);
           return (
             <div className="video-card card" key={v.id}>
               <video src={v.url} controls preload="metadata" />
               <h3 style={{ marginBottom: 6 }}>{v.title}</h3>
-              {v.description && <p className="small" style={{ marginTop: 0 }}>{v.description}</p>}
-              <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:8 }}>
+              {v.description && (
+                <p className="small" style={{ marginTop: 0 }}>
+                  {v.description}
+                </p>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginTop: 8,
+                }}
+              >
                 <button className="button secondary" onClick={() => toggleLike(v.id)}>
-                  {userLiked ? '♥ Unlike' : '♡ Like'} ({likeCount})
+                  {userLiked ? "♥ Unlike" : "♡ Like"} ({likeCount})
                 </button>
                 {v.user_id === userId && (
-                  <button className="button" onClick={() => deleteVideo(v)}>Delete</button>
+                  <button className="button" onClick={() => deleteVideo(v)}>
+                    Delete
+                  </button>
                 )}
-                <span className="badge">{new Date(v.created_at).toLocaleString()}</span>
+                <span className="badge">
+                  {new Date(v.created_at).toLocaleString()}
+                </span>
               </div>
               <hr className="sep" />
               <CommentsSection
@@ -127,29 +183,54 @@ export default function VideoList({ session }) {
 }
 
 function CommentsSection({ video, userId, comments, onAdd, onDelete }) {
-  const [text, setText] = useState('');
-
+  const [text, setText] = useState("");
   return (
     <div>
-      <h4 style={{ margin: '0 0 8px 0' }}>Comments</h4>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <h4 style={{ margin: "0 0 8px 0" }}>Comments</h4>
+      <div style={{ display: "flex", gap: 8 }}>
         <input
           className="input"
           placeholder="Leave a kind word…"
           value={text}
-          onChange={e => setText(e.target.value)}
+          onChange={(e) => setText(e.target.value)}
         />
-        <button className="button" onClick={() => { onAdd(video.id, text); setText(''); }}>
+        <button
+          className="button"
+          onClick={() => {
+            if (text.trim()) {
+              onAdd(video.id, text.trim());
+              setText("");
+            }
+          }}
+        >
           Send
         </button>
       </div>
-      <div style={{ marginTop: 8, display:'flex', flexDirection:'column', gap: 8 }}>
-        {comments.map(c => (
+      <div
+        style={{
+          marginTop: 8,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        {comments.map((c) => (
           <div key={c.id} className="card" style={{ padding: 8 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               <span className="small">{new Date(c.created_at).toLocaleString()}</span>
               {c.user_id === userId && (
-                <button className="button secondary" onClick={() => onDelete(video.id, c.id)}>Delete</button>
+                <button
+                  className="button secondary"
+                  onClick={() => onDelete(video.id, c.id)}
+                >
+                  Delete
+                </button>
               )}
             </div>
             <div style={{ marginTop: 4 }}>{c.content}</div>

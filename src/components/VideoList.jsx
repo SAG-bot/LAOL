@@ -16,8 +16,12 @@ export default function VideoList({ session }) {
 
   const load = async () => {
     const { data: vids } = await supabase.from("videos").select("*").order("created_at", { ascending: false });
-    const withUrls = await Promise.all(vids.map(v => ({ ...v, url: await signedUrl(v.video_path) })));
-    setVideos(withUrls);
+  const withUrls = await Promise.all(
+    vids.map(async (v) => ({ ...v, url: await signedUrl(v.video_path) }))
+  );
+
+  setVideos(withUrls);
+};
 
     const { data: likeRows } = await supabase.from("likes").select("video_id, user_id");
     setUserLikes(new Set(likeRows.filter(r => r.user_id === userId).map(r => r.video_id)));
@@ -115,3 +119,4 @@ function CommentsSection({ video, userId, comments, onAdd }) {
     </div>
   );
 }
+

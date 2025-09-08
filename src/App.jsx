@@ -1,24 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from './supabaseClient';
-import Auth from './components/Auth';
-import AffirmationTile from './components/AffirmationTile';
-import VideoUpload from './components/VideoUpload';
-import VideoList from './components/VideoList';
-import Chat from './components/Chat';
-import FloatingButtons from './components/FloatingButtons';
+import React, { useEffect, useState } from "react";
+import { supabase } from "./supabaseClient";
+import Auth from "./components/Auth";
+import AffirmationTile from "./components/AffirmationTile";
+import VideoUpload from "./components/VideoUpload";
+import VideoList from "./components/VideoList";
+import Chat from "./components/Chat";
+import FloatingButtons from "./components/FloatingButtons";
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [showChat, setShowChat] = useState(false);
+  const [refreshVideos, setRefreshVideos] = useState(false); // trigger VideoList refresh
 
   useEffect(() => {
-    // get current session
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
-
-    // subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data: authListener } = supabase.auth.onAuthStateChange((_e, s) =>
+      setSession(s)
+    );
     return () => authListener.subscription.unsubscribe();
   }, []);
+
+  const handleUploadComplete = () => {
+    // Trigger VideoList to reload
+    setRefreshVideos((prev) => !prev);
+  };
 
   return (
     <div className="container">
@@ -41,11 +46,11 @@ export default function App() {
       ) : (
         <>
           <div style={{ marginTop: 16 }} className="card">
-            <VideoUpload session={session} />
+            <VideoUpload session={session} onUploadComplete={handleUploadComplete} />
           </div>
 
           <div style={{ marginTop: 16 }} className="card">
-            <VideoList session={session} />
+            <VideoList key={refreshVideos} session={session} />
           </div>
         </>
       )}
@@ -55,11 +60,22 @@ export default function App() {
       {session && (
         <>
           <FloatingButtons
-            onChat={() => setShowChat(v => !v)}
-            onLogout={async () => { await supabase.auth.signOut(); }}
+            onChat={() => setShowChat((v) => !v)}
+            onLogout={async () => {
+              await supabase.auth.signOut();
+            }}
           />
           {showChat && (
-            <div style={{ position: 'fixed', right: 84, bottom: 16, width: 360, maxWidth: '90vw', zIndex: 30 }}>
+            <div
+              style={{
+                position: "fixed",
+                right: 84,
+                bottom: 16,
+                width: 360,
+                maxWidth: "90vw",
+                zIndex: 30,
+              }}
+            >
               <div className="card">
                 <Chat session={session} />
               </div>

@@ -1,35 +1,24 @@
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-import Compressor from "browser-video-compressor"; // install: npm i browser-video-compressor
+import { supabase } from "../supabaseClient";
+import Compressor from "browser-video-compressor";
 
-// Initialize Supabase
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-
-export default function VideoUpload() {
+export default function VideoUpload({ session }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
+  const handleFileChange = (e) => setFile(e.target.files[0]);
 
   const compressIfNeeded = async (videoFile) => {
-    if (videoFile.size <= 50 * 1024 * 1024) {
-      return videoFile; // already under 50MB
-    }
+    if (videoFile.size <= 50 * 1024 * 1024) return videoFile; // under 50MB
 
     try {
       const compressedFile = await Compressor(videoFile, {
-        quality: 0.6, // adjust for balance between size & quality
+        quality: 0.6,
         maxWidth: 1920,
         maxHeight: 1080,
       });
 
-      // If still too big, keep reducing
       if (compressedFile.size > 50 * 1024 * 1024) {
         setMessage("Video still too large after compression. Try a shorter video.");
         return null;
@@ -60,30 +49,38 @@ export default function VideoUpload() {
 
     const fileName = `${Date.now()}-${processedFile.name}`;
 
-    const { error } = await supabase.storage
-      .from("videos")
-      .upload(fileName, processedFile);
+    try {
+      // 1. Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from("videos")
+        .upload(fileName, processedFile);
 
-    if (error) {
-      console.error("Upload error:", error);
-      setMessage("Upload failed.");
-    } else {
+      if (uploadError) throw uploadError;
+
+      // 2. Insert row into videos table
+      const { error: dbError } = await supabase.from("videos").insert({
+        user_id: session.user.id,
+        video_path: fileName,
+        title: processedFile.name,
+        description: "",
+      });
+
+      if (dbError) throw dbError;
+
       setMessage("Upload successful!");
+      setFile(null);
+    } catch (err) {
+      console.error(err);
+      setMessage("Upload failed.");
     }
 
     setUploading(false);
-    setFile(null);
   };
 
   return (
     <div className="p-4 border rounded-lg shadow-lg">
       <h2 className="text-xl font-semibold mb-2">Upload Video</h2>
-      <input
-        type="file"
-        accept="video/*"
-        onChange={handleFileChange}
-        className="mb-2"
-      />
+      <input type="file" accept="video/*" onChange={handleFileChange} className="mb-2" />
       <button
         onClick={handleUpload}
         disabled={uploading}

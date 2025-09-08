@@ -1,126 +1,133 @@
-import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import React, { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const ffmpeg = createFFmpeg({ log: true });
 
 export default function VideoUpload({ session }) {
   const [file, setFile] = useState(null);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState("");
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const f = e.target.files[0];
+    if (f) setFile(f);
   };
 
-  const handleUpload = async () => {
-    if (!file || !title.trim()) {
-      alert('Please select a video and enter a title.');
-      return;
-    }
+  const compressVideo = async (videoFile) => {
+    if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+    ffmpeg.FS("writeFile", "input.mp4", await fetchFile(videoFile));
+    await ffmpeg.run(
+      "-i",
+      "input.mp4",
+      "-vcodec",
+      "libx264",
+      "-crf",
+      "28",
+      "output.mp4"
+    );
+    const data = ffmpeg.FS("readFile", "output.mp4");
+    return new File([data.buffer], videoFile.name, { type: "video/mp4" });
+  };
+
+  const uploadVideo = async () => {
+    if (!file) return setMessage("Select a video first.");
+    if (!title.trim()) return setMessage("Please enter a title.");
 
     setUploading(true);
     setProgress(0);
+    setMessage("");
 
-    // Dynamically import FFmpeg
-    const ffmpegModule = await import('@ffmpeg/ffmpeg');
-    const { createFFmpeg, fetchFile } = ffmpegModule;
-    const ffmpeg = createFFmpeg({ log: true });
+    try {
+      let uploadFile = file;
 
-    if (!ffmpeg.isLoaded()) await ffmpeg.load();
+      // Compress if over 50MB
+      if (file.size > 50 * 1024 * 1024) {
+        setMessage("Compressing video...");
+        uploadFile = await compressVideo(file);
+      }
 
-    let fileToUpload = file;
-    // Compress if > 50MB
-    if (file.size > 50 * 1024 * 1024) {
-      ffmpeg.FS('writeFile', file.name, await fetchFile(file));
-      const outputName = `compressed_${file.name}`;
-      await ffmpeg.run(
-        '-i',
-        file.name,
-        '-vcodec',
-        'libx264',
-        '-crf',
-        '28',
-        outputName
-      );
-      const data = ffmpeg.FS('readFile', outputName);
-      fileToUpload = new Blob([data.buffer], { type: file.type });
-    }
+      const filePath = `${session.user.id}/${Date.now()}_${uploadFile.name}`;
 
-    // Generate unique file name
-    const fileName = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage
+        .from("videos")
+        .upload(filePath, uploadFile, {
+          cacheControl: "3600",
+          upsert: false,
+          onUploadProgress: (e) => {
+            if (e.total) {
+              setProgress(Math.round((e.loaded / e.total) * 100));
+            }
+          },
+        });
 
-    // Upload to Supabase storage
-    const { error: uploadError } = await supabase.storage
-      .from('videos')
-      .upload(fileName, fileToUpload, { cacheControl: '3600', upsert: true });
+      if (error) throw error;
 
-    if (uploadError) {
-      console.error(uploadError);
-      alert('Upload failed.');
-      setUploading(false);
-      return;
-    }
-
-    // Save metadata in Supabase table
-    const { error: dbError } = await supabase
-      .from('videos')
-      .insert({
-        title: title.trim(),
-        description: description.trim(),
-        video_path: fileName,
+      // Save video metadata in table
+      const { error: tableError } = await supabase.from("videos").insert({
         user_id: session.user.id,
+        title,
+        description,
+        video_path: filePath,
       });
 
-    if (dbError) {
-      console.error(dbError);
-      alert('Failed to save video info.');
-    } else {
-      alert('Upload complete!');
-      setFile(null);
-      setTitle('');
-      setDescription('');
-    }
+      if (tableError) throw tableError;
 
-    setUploading(false);
+      setMessage("Video uploaded successfully!");
+      setFile(null);
+      setTitle("");
+      setDescription("");
+      setProgress(0);
+    } catch (err) {
+      console.error(err);
+      setMessage(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
     <div>
-      <h3>Share Your Video</h3>
+      <h3>Upload a new video</h3>
       <div className="row">
         <div className="col">
           <input
-            className="input"
             type="text"
-            placeholder="Video Title"
+            placeholder="Video title"
+            className="input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
         </div>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
         <div className="col">
-          <input
-            className="input"
-            type="text"
+          <textarea
             placeholder="Description (optional)"
+            className="textarea"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
       </div>
-      <div style={{ marginTop: 12 }}>
-        <input
-          className="file"
-          type="file"
-          accept="video/*"
-          onChange={handleFileChange}
-        />
+      <div className="row" style={{ marginTop: 8 }}>
+        <div className="col">
+          <input type="file" accept="video/*" className="file" onChange={handleFileChange} />
+        </div>
       </div>
-      <div style={{ marginTop: 12 }}>
-        <button className="button" onClick={handleUpload} disabled={uploading}>
-          {uploading ? 'Uploading...' : 'Upload Video'}
-        </button>
-      </div>
-      {uploading && <p style={{ marginTop: 8 }}>Uploading… {progress}%</p>}
+      {uploading && <p>Uploading: {progress}%</p>}
+      {message && <p>{message}</p>}
+      <button className="button" onClick={uploadVideo} disabled={uploading}>
+        {uploading ? "Uploading..." : "Upload"}
+      </button>
     </div>
   );
 }

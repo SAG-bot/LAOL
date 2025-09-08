@@ -1,26 +1,24 @@
-import React, { useEffect, useState, useRef } from "react";
-import { supabase } from "./supabaseClient";
-import Auth from "./components/Auth";
-import AffirmationTile from "./components/AffirmationTile";
-import VideoUpload from "./components/VideoUpload";
-import VideoList from "./components/VideoList";
-import Chat from "./components/Chat";
-import FloatingButtons from "./components/FloatingButtons";
+import React, { useEffect, useState } from 'react';
+import { supabase } from './supabaseClient';
+import Auth from './components/Auth';
+import AffirmationTile from './components/AffirmationTile';
+import VideoUpload from './components/VideoUpload';
+import VideoList from './components/VideoList';
+import Chat from './components/Chat';
+import FloatingButtons from './components/FloatingButtons';
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [showChat, setShowChat] = useState(false);
-  const videoListRef = useRef(null);
 
   useEffect(() => {
+    // get current session
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
-    const { data: authListener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+
+    // subscribe to auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => authListener.subscription.unsubscribe();
   }, []);
-
-  const handleVideoUpload = () => {
-    if (videoListRef.current) videoListRef.current.reload();
-  };
 
   return (
     <div className="container">
@@ -43,11 +41,11 @@ export default function App() {
       ) : (
         <>
           <div style={{ marginTop: 16 }} className="card">
-            <VideoUpload session={session} onUploadComplete={handleVideoUpload} />
+            <VideoUpload session={session} />
           </div>
 
           <div style={{ marginTop: 16 }} className="card">
-            <VideoList ref={videoListRef} session={session} />
+            <VideoList session={session} />
           </div>
         </>
       )}
@@ -58,10 +56,10 @@ export default function App() {
         <>
           <FloatingButtons
             onChat={() => setShowChat(v => !v)}
-            onLogout={async () => await supabase.auth.signOut()}
+            onLogout={async () => { await supabase.auth.signOut(); }}
           />
           {showChat && (
-            <div style={{ position: "fixed", right: 84, bottom: 16, width: 360, maxWidth: "90vw", zIndex: 30 }}>
+            <div style={{ position: 'fixed', right: 84, bottom: 16, width: 360, maxWidth: '90vw', zIndex: 30 }}>
               <div className="card">
                 <Chat session={session} />
               </div>

@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root{
   --bg1:#0d0b25;
   --bg2:#1a1052;
@@ -179,3 +183,7 @@ footer {
   transition: background .2s;
 }
 .modal-close:hover { background:#ddd; }
+
+
+
+

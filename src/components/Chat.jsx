@@ -1,13 +1,11 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function Chat({ session }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const userId = session.user.id;
-  const messagesEndRef = useRef(null);
 
-  // Load messages
   const loadMessages = async () => {
     const { data, error } = await supabase
       .from('messages')
@@ -20,44 +18,26 @@ export default function Chat({ session }) {
   useEffect(() => {
     loadMessages();
 
-    // Realtime subscription
     const channel = supabase
       .channel('room:messages')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (_payload) => loadMessages()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadMessages())
       .subscribe();
 
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Auto-scroll to bottom whenever messages change
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
-
-  // Send a new message
   const sendMessage = async () => {
     const content = text.trim();
     if (!content) return;
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiry
-    const { error } = await supabase
-      .from('messages')
-      .insert({ user_id: userId, content, expires_at: expiresAt });
-
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiration
+    const { error } = await supabase.from('messages').insert({ user_id: userId, content, expires_at: expiresAt });
     if (!error) setText('');
   };
 
-  // Delete own message
   const deleteMessage = async (id) => {
     await supabase.from('messages').delete().eq('id', id);
+    setMessages(messages.filter(m => m.id !== id));
   };
 
   return (
@@ -75,19 +55,10 @@ export default function Chat({ session }) {
         <button className="button" onClick={sendMessage}>Send</button>
       </div>
 
-      <div
-        style={{
-          marginTop: 12,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          maxHeight: '50vh',
-          overflowY: 'auto',
-        }}
-      >
-        {messages.map((m) => (
+      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '50vh', overflow: 'auto' }}>
+        {messages.map(m => (
           <div key={m.id} className="card" style={{ padding: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span className="badge">{new Date(m.created_at).toLocaleString()}</span>
               {m.user_id === userId && (
                 <button className="button secondary" onClick={() => deleteMessage(m.id)}>Delete</button>
@@ -96,8 +67,6 @@ export default function Chat({ session }) {
             <div style={{ marginTop: 6 }}>{m.content}</div>
           </div>
         ))}
-        {/* Dummy div to scroll into view */}
-        <div ref={messagesEndRef}></div>
       </div>
     </div>
   );

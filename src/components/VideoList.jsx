@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 
-async function signedUrl(path) {
+// Generate a signed URL for private/public videos
+async function getSignedUrl(path) {
   const { data, error } = await supabase
     .storage.from('videos')
     .createSignedUrl(path, 60 * 60); // 1 hour
@@ -11,10 +12,9 @@ async function signedUrl(path) {
 
 export default function VideoList({ session }) {
   const [videos, setVideos] = useState([]);
-  const [likes, setLikes] = useState(new Map());
+  const [likes, setLikes] = useState(new Map()); // videoId -> count
   const [userLikes, setUserLikes] = useState(new Set());
   const [comments, setComments] = useState(new Map());
-  const [modalVideo, setModalVideo] = useState(null);
   const userId = session.user.id;
 
   const loadVideos = async () => {
@@ -22,36 +22,27 @@ export default function VideoList({ session }) {
       .from('videos')
       .select('*')
       .order('created_at', { ascending: false });
-    if (error) throw error;
+    if (error) return console.error(error);
 
-    const withUrls = await Promise.all(
-      vids.map(async (v) => ({
-        ...v,
-        videoUrl: await signedUrl(v.video_path),
-        thumbnailUrl: v.thumbnail_path ? await signedUrl(v.thumbnail_path) : null,
-      }))
+    // Add signed URLs
+    const vidsWithUrls = await Promise.all(
+      vids.map(async (v) => ({ ...v, url: await getSignedUrl(v.video_path) }))
     );
+    setVideos(vidsWithUrls);
 
-    setVideos(withUrls);
-
-    // Likes
+    // Load likes
     const { data: likeRows } = await supabase.from('likes').select('video_id, user_id');
-    const likeCountsMap = new Map();
-    const userLikedSet = new Set();
-    likeRows?.forEach((l) => {
-      likeCountsMap.set(l.video_id, (likeCountsMap.get(l.video_id) || 0) + 1);
-      if (l.user_id === userId) userLikedSet.add(l.video_id);
-    });
-    setLikes(likeCountsMap);
-    setUserLikes(userLikedSet);
+    const likeCounts = new Map();
+    likeRows?.forEach(l => likeCounts.set(l.video_id, (likeCounts.get(l.video_id) || 0) + 1));
+    setLikes(likeCounts);
 
-    // Comments
-    const { data: cmts } = await supabase
-      .from('comments')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const likedSet = new Set(likeRows?.filter(l => l.user_id === userId).map(l => l.video_id));
+    setUserLikes(likedSet);
+
+    // Load comments
+    const { data: cmts } = await supabase.from('comments').select('*').order('created_at', { ascending: true });
     const cMap = new Map();
-    cmts?.forEach((c) => {
+    cmts?.forEach(c => {
       const arr = cMap.get(c.video_id) || [];
       arr.push(c);
       cMap.set(c.video_id, arr);
@@ -63,85 +54,62 @@ export default function VideoList({ session }) {
 
   const toggleLike = async (videoId) => {
     if (userLikes.has(videoId)) {
-      const { error } = await supabase.from('likes').delete().eq('video_id', videoId).eq('user_id', userId);
-      if (!error) {
-        const set = new Set(userLikes); set.delete(videoId); setUserLikes(set);
-        setLikes(new Map(likes.set(videoId, Math.max((likes.get(videoId)||1)-1, 0))));
-      }
+      await supabase.from('likes').delete().eq('video_id', videoId).eq('user_id', userId);
+      const updatedSet = new Set(userLikes); updatedSet.delete(videoId); setUserLikes(updatedSet);
+      setLikes(new Map(likes.set(videoId, Math.max((likes.get(videoId) || 1) - 1, 0))));
     } else {
-      const { error } = await supabase.from('likes').insert({ video_id: videoId, user_id: userId });
-      if (!error) {
-        const set = new Set(userLikes); set.add(videoId); setUserLikes(set);
-        setLikes(new Map(likes.set(videoId, (likes.get(videoId)||0)+1)));
-      }
+      await supabase.from('likes').insert({ video_id: videoId, user_id: userId });
+      const updatedSet = new Set(userLikes); updatedSet.add(videoId); setUserLikes(updatedSet);
+      setLikes(new Map(likes.set(videoId, (likes.get(videoId) || 0) + 1)));
     }
   };
 
   const addComment = async (videoId, content) => {
+    if (!content.trim()) return;
     const { data, error } = await supabase.from('comments').insert({ video_id: videoId, user_id: userId, content }).select().single();
     if (!error && data) {
       const cMap = new Map(comments);
       const arr = cMap.get(videoId) || [];
-      arr.push(data); cMap.set(videoId, arr);
+      arr.push(data);
+      cMap.set(videoId, arr);
       setComments(cMap);
     }
   };
 
   const deleteComment = async (videoId, id) => {
-    const { error } = await supabase.from('comments').delete().eq('id', id);
-    if (!error) {
-      const cMap = new Map(comments);
-      cMap.set(videoId, (cMap.get(videoId) || []).filter(c => c.id !== id));
-      setComments(cMap);
-    }
+    await supabase.from('comments').delete().eq('id', id);
+    const cMap = new Map(comments);
+    cMap.set(videoId, (cMap.get(videoId) || []).filter(c => c.id !== id));
+    setComments(cMap);
   };
 
   const deleteVideo = async (vid) => {
-    const { error } = await supabase.from('videos').delete().eq('id', vid.id);
-    if (!error) {
-      if (vid.video_path) await supabase.storage.from('videos').remove([vid.video_path]).catch(() => {});
-      if (vid.thumbnail_path) await supabase.storage.from('videos').remove([vid.thumbnail_path]).catch(() => {});
-      setVideos(videos.filter(v => v.id !== vid.id));
-    }
+    await supabase.from('videos').delete().eq('id', vid.id);
+    await supabase.storage.from('videos').remove([vid.video_path]).catch(() => {});
+    setVideos(videos.filter(v => v.id !== vid.id));
   };
 
   return (
     <div>
-      <h2 style={{ marginTop:0 }}>Recent shares</h2>
+      <h2 style={{ marginTop: 0 }}>Recent shares</h2>
       <div className="video-grid">
         {videos.map(v => {
           const likeCount = likes.get(v.id) || 0;
           const userLiked = userLikes.has(v.id);
           return (
             <div className="video-card card" key={v.id}>
-              {v.thumbnailUrl ? (
-                <img
-                  src={v.thumbnailUrl}
-                  alt={v.title}
-                  onClick={() => setModalVideo(v)}
-                />
-              ) : (
-                <video
-                  src={v.videoUrl}
-                  controls
-                  preload="metadata"
-                  onClick={() => setModalVideo(v)}
-                />
-              )}
-
-              <h3 style={{ margin: '8px 0 6px 0' }}>{v.title}</h3>
-              {v.description && <p className="small" style={{ marginTop:0 }}>{v.description}</p>}
-
+              <video src={v.url} controls preload="metadata" />
+              <h3 style={{ marginBottom: 6 }}>{v.title}</h3>
+              {v.description && <p className="small" style={{ marginTop: 0 }}>{v.description}</p>}
               <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:8 }}>
-                <button className="button secondary" onClick={()=>toggleLike(v.id)}>
+                <button className="button secondary" onClick={() => toggleLike(v.id)}>
                   {userLiked ? '♥ Unlike' : '♡ Like'} ({likeCount})
                 </button>
                 {v.user_id === userId && (
-                  <button className="button" onClick={()=>deleteVideo(v)}>Delete</button>
+                  <button className="button" onClick={() => deleteVideo(v)}>Delete</button>
                 )}
                 <span className="badge">{new Date(v.created_at).toLocaleString()}</span>
               </div>
-
               <hr className="sep" />
               <CommentsSection
                 video={v}
@@ -154,39 +122,37 @@ export default function VideoList({ session }) {
           );
         })}
       </div>
-
-      {/* Modal */}
-      <div className={`modal-overlay ${modalVideo ? 'active' : ''}`} onClick={() => setModalVideo(null)}>
-        {modalVideo && (
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <video src={modalVideo.videoUrl} controls autoPlay />
-            <button className="modal-close" onClick={() => setModalVideo(null)}>Close</button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
 
 function CommentsSection({ video, userId, comments, onAdd, onDelete }) {
   const [text, setText] = useState('');
+
   return (
     <div>
       <h4 style={{ margin: '0 0 8px 0' }}>Comments</h4>
-      <div style={{ display:'flex', gap:8 }}>
-        <input className="input" placeholder="Leave a kind word…" value={text} onChange={e=>setText(e.target.value)} />
-        <button className="button" onClick={()=>{ if(text.trim()){ onAdd(video.id, text.trim()); setText(''); }}}>Send</button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          className="input"
+          placeholder="Leave a kind word…"
+          value={text}
+          onChange={e => setText(e.target.value)}
+        />
+        <button className="button" onClick={() => { onAdd(video.id, text); setText(''); }}>
+          Send
+        </button>
       </div>
-      <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:8 }}>
+      <div style={{ marginTop: 8, display:'flex', flexDirection:'column', gap: 8 }}>
         {comments.map(c => (
-          <div key={c.id} className="card" style={{ padding:8 }}>
+          <div key={c.id} className="card" style={{ padding: 8 }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <span className="small">{new Date(c.created_at).toLocaleString()}</span>
               {c.user_id === userId && (
-                <button className="button secondary" onClick={()=>onDelete(video.id, c.id)}>Delete</button>
+                <button className="button secondary" onClick={() => onDelete(video.id, c.id)}>Delete</button>
               )}
             </div>
-            <div style={{ marginTop:4 }}>{c.content}</div>
+            <div style={{ marginTop: 4 }}>{c.content}</div>
           </div>
         ))}
       </div>

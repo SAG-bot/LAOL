@@ -20,7 +20,8 @@ export default function AffirmationTile() {
     <div>
       <div className="badge">Daily affirmation</div>
       <h2 style={{ margin: '8px 0 0 0' }}>{getDailyAffirmation()}</h2>
-      <p className="small">Refreshed each day—soft as starlight.</p>
+      <p className="small">Refreshed each day.</p>
     </div>
   );
+
 }

@@ -1,44 +1,58 @@
-const ffmpeg = require("@ffmpeg-installer/ffmpeg");
-const { spawn } = require("child_process");
-const fs = require("fs");
 const path = require("path");
+
+let ffmpegPath;
+let ffmpeg;
+try {
+  const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
+  ffmpegPath = ffmpegInstaller.path;
+  ffmpeg = require("fluent-ffmpeg");
+  ffmpeg.setFfmpegPath(ffmpegPath);
+} catch (err) {
+  console.warn("⚠️ FFmpeg not available in this environment:", err.message);
+  ffmpeg = null; // mark ffmpeg as unavailable
+}
 
 exports.handler = async (event) => {
   try {
-    const { fileName, fileData } = JSON.parse(event.body);
+    const { filePath, outputPath } = JSON.parse(event.body);
 
-    const inputPath = path.join("/tmp", fileName);
-    const outputPath = path.join("/tmp", "compressed_" + fileName);
+    if (!ffmpeg) {
+      console.log("⚠️ Skipping compression, returning original file.");
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          file: filePath, // return the uncompressed file
+          warning: "Compression skipped (FFmpeg not available).",
+        }),
+      };
+    }
 
-    // Write input video to tmp
-    fs.writeFileSync(inputPath, Buffer.from(fileData, "base64"));
-
-    // Run ffmpeg compression
+    // Run compression
     await new Promise((resolve, reject) => {
-      const proc = spawn(ffmpeg.path, [
-        "-i", inputPath,
-        "-vcodec", "libx264",
-        "-crf", "28",
-        "-preset", "fast",
-        outputPath,
-      ]);
-
-      proc.on("close", (code) => {
-        code === 0 ? resolve() : reject(new Error("FFmpeg compression failed"));
-      });
+      ffmpeg(filePath)
+        .outputOptions([
+          "-vcodec libx264",
+          "-crf 28", // adjust quality/size
+          "-preset veryfast",
+        ])
+        .save(outputPath)
+        .on("end", resolve)
+        .on("error", reject);
     });
-
-    // Read compressed video
-    const compressedFile = fs.readFileSync(outputPath);
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        fileName: "compressed_" + fileName,
-        fileData: compressedFile.toString("base64"),
+        success: true,
+        file: outputPath,
       }),
     };
   } catch (err) {
-    return { statusCode: 500, body: err.message };
+    console.error("❌ Compression failed:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ success: false, error: err.message }),
+    };
   }
 };

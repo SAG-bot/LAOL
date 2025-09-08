@@ -12,12 +12,16 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
 
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session || null);
     });
-    const { data: authListener } = supabase.auth.onAuthStateChange((_e, s) => {
+
+    // Listen for auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
     });
+
     return () => authListener.subscription.unsubscribe();
   }, []);
 
@@ -45,7 +49,7 @@ export default function App() {
         <>
           {/* Video Upload */}
           <div style={{ marginTop: 16 }} className="card">
-            <VideoUpload />
+            <VideoUpload session={session} />
           </div>
 
           {/* Video List */}

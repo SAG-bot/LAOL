@@ -7,6 +7,7 @@
   --blue:#4cc9f0;
   --text:#f4f3ff;
   --muted:#cbbfff;
+  --modal-bg: rgba(0,0,0,0.8);
 }
 
 *{ box-sizing:border-box; }
@@ -60,7 +61,9 @@ body {
   padding: 16px;
   backdrop-filter: blur(8px);
   box-shadow: 0 10px 30px rgba(64, 18, 110, 0.35);
+  transition: transform .15s ease, box-shadow .2s ease;
 }
+.card:hover { transform: translateY(-2px); }
 
 .button {
   background: linear-gradient(90deg, var(--purple), var(--pink));
@@ -80,7 +83,14 @@ body {
   color: var(--text);
   border:1px solid rgba(255,255,255,0.14);
   padding:10px 12px; border-radius:12px;
+  font-size: 14px;
+  transition: border-color .2s;
 }
+.input:focus, .textarea:focus {
+  border-color: var(--purple);
+  outline:none;
+}
+
 .textarea { min-height:80px; }
 
 .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
@@ -99,9 +109,18 @@ body {
   gap:16px;
 }
 
-.video-card video {
-  width:100%; border-radius:12px; background:#000;
+.video-card {
+  display:flex; flex-direction:column; gap:6px;
 }
+.video-card video, .video-card img {
+  width:100%; border-radius:12px; background:#000;
+  cursor:pointer;
+  transition: transform .2s ease;
+}
+.video-card video:hover, .video-card img:hover {
+  transform: scale(1.02);
+}
+
 .small { font-size:12px; color:var(--muted); }
 
 .floating {
@@ -112,7 +131,7 @@ body {
   display:grid; place-items:center; border:1px solid rgba(255,255,255,0.2);
   background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.03));
   backdrop-filter: blur(8px); cursor:pointer;
-  box-shadow: 0 8px 24px rgba(155, 92, 255, 0.35);
+  box-shadow: 0 8px 24px rgba(155, 92, 255,0.35);
 }
 .floating .circle:hover { transform: translateY(-1px); }
 
@@ -124,3 +143,39 @@ hr.sep {
 footer {
   color: var(--muted); font-size: 12px; text-align:center; margin-top: 24px;
 }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top:0; left:0; width:100vw; height:100vh;
+  background: var(--modal-bg);
+  display:flex; justify-content:center; align-items:center;
+  z-index:1000;
+  opacity:0; visibility:hidden;
+  transition: opacity .3s ease;
+}
+.modal-overlay.active {
+  opacity:1; visibility:visible;
+}
+
+.modal-content {
+  position:relative;
+  width:90%; max-width:720px;
+  background:#000;
+  border-radius:12px;
+  overflow:hidden;
+  box-shadow:0 0 30px rgba(0,0,0,0.7);
+}
+.modal-content video {
+  width:100%;
+  border-radius:12px;
+}
+
+/* Modal close button */
+.modal-close {
+  position:absolute; top:8px; right:8px;
+  background:#fff; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;
+  font-weight:600;
+  transition: background .2s;
+}
+.modal-close:hover { background:#ddd; }
